@@ -86,7 +86,11 @@ load_and_play_music()
 
 # Mode timing variables
 mode_start_time = time.time()
-mode_duration = 5  # 5 seconds per mode
+mode_duration = 7  # 7 seconds per mode
+
+# Gesture cooldown variables
+last_gesture_time = 0
+gesture_cooldown = 1.0  # 1 second cooldown between gesture detections
 
 while cap.isOpened():
     ret, frame = cap.read()
@@ -104,6 +108,92 @@ while cap.isOpened():
 
     mask = seg_results.segmentation_mask  # float32, 0-1
     mask_bin = (mask > 0.5).astype(np.uint8)
+
+    # ---- GESTURE DETECTION FOR MODE SWITCHING ----
+    gesture_detected = False
+    target_mode = None
+    
+    # Check if enough time has passed since last gesture
+    current_time = time.time()
+    if current_time - last_gesture_time < gesture_cooldown:
+        gesture_detected = False  # Skip gesture detection during cooldown
+    else:
+        # Store previous hand positions for velocity calculation
+        if 'prev_thumb_tip' not in globals():
+            prev_thumb_tip = None
+            prev_index_tip = None
+            prev_middle_tip = None
+        
+        if hands_results.multi_hand_landmarks:
+            for hand_landmarks in hands_results.multi_hand_landmarks:
+                # Check for specific finger gestures
+                if hand_landmarks:
+                    # Get key finger landmarks
+                    thumb_tip = hand_landmarks.landmark[mp_hands.HandLandmark.THUMB_TIP]
+                    index_tip = hand_landmarks.landmark[mp_hands.HandLandmark.INDEX_FINGER_TIP]
+                    middle_tip = hand_landmarks.landmark[mp_hands.HandLandmark.MIDDLE_FINGER_TIP]
+                    ring_tip = hand_landmarks.landmark[mp_hands.HandLandmark.RING_FINGER_TIP]
+                    pinky_tip = hand_landmarks.landmark[mp_hands.HandLandmark.PINKY_TIP]
+                
+                    # Get corresponding MCP joints (base of fingers)
+                    thumb_mcp = hand_landmarks.landmark[mp_hands.HandLandmark.THUMB_MCP]
+                    index_mcp = hand_landmarks.landmark[mp_hands.HandLandmark.INDEX_FINGER_MCP]
+                    middle_mcp = hand_landmarks.landmark[mp_hands.HandLandmark.MIDDLE_FINGER_MCP]
+                    ring_mcp = hand_landmarks.landmark[mp_hands.HandLandmark.RING_FINGER_MCP]
+                    pinky_mcp = hand_landmarks.landmark[mp_hands.HandLandmark.PINKY_MCP]
+                
+                    # Check if fingers are closed (tips lower than MCP = closed hand)
+                    thumb_closed = thumb_tip.y > thumb_mcp.y
+                    index_closed = index_tip.y > index_mcp.y
+                    middle_closed = middle_tip.y > middle_mcp.y
+                    ring_closed = ring_tip.y > ring_mcp.y
+                    pinky_closed = pinky_tip.y > pinky_mcp.y
+                
+                    # Check for thumb and index touch gesture (constellation mode)
+                    thumb_index_touch = False
+                    if thumb_tip is not None and index_tip is not None:
+                        # Calculate distance between thumb and index
+                        touch_distance = np.sqrt((thumb_tip.x - index_tip.x)**2 + (thumb_tip.y - index_tip.y)**2)
+                        
+                        # Touch detected if fingers are close
+                        if touch_distance < 0.05:
+                            thumb_index_touch = True
+                
+                    # Check for thumb and middle touch gesture (heatmap mode)
+                    thumb_middle_touch = False
+                    if thumb_tip is not None and middle_tip is not None:
+                        # Calculate distance between thumb and middle
+                        touch_distance = np.sqrt((thumb_tip.x - middle_tip.x)**2 + (thumb_tip.y - middle_tip.y)**2)
+                        
+                        # Touch detected if fingers are close
+                        if touch_distance < 0.05:
+                            thumb_middle_touch = True
+                
+                    # Thumb + Index touch = HEATMAP mode
+                    if thumb_index_touch:
+                        target_mode = "HEATMAP"
+                        gesture_detected = True
+                        last_gesture_time = current_time  # Update cooldown timer
+                        print(f"Thumb-index touch detected! Switched to {styles[current_style]} mode")
+                        break
+                
+                    # Thumb + Middle touch = CONSTELLATION mode
+                    if thumb_middle_touch:
+                        target_mode = "CONSTELLATION"
+                        gesture_detected = True
+                        last_gesture_time = current_time  # Update cooldown timer
+                        print(f"Thumb-middle touch detected! Switched to {styles[current_style]} mode")
+                        break
+    
+    # Switch mode on gesture detection
+    if gesture_detected and target_mode == "CONSTELLATION":
+        current_style = 1
+        mode_start_time = time.time()
+        print(f"Touch gesture detected! Switched to {styles[current_style]} mode")
+    elif gesture_detected and target_mode == "HEATMAP":
+        current_style = 0
+        mode_start_time = time.time()
+        print(f"Touch gesture detected! Switched to {styles[current_style]} mode")
 
     # ---- STYLE RENDERING ----
     canvas = np.zeros_like(frame)
