@@ -1,6 +1,10 @@
 import cv2
 import mediapipe as mp
 import numpy as np
+import pygame
+import threading
+import os
+import time
 
 # MediaPipe setup
 mp_pose = mp.solutions.pose
@@ -35,7 +39,54 @@ for _ in range(5):
         'puffs': np.random.randint(3, 6)
     })
 
-cv2.namedWindow("Human Visualizer", cv2.WINDOW_NORMAL)
+cv2.namedWindow("Wizviz", cv2.WINDOW_FREERATIO)
+cv2.setWindowProperty("Wizviz", cv2.WND_PROP_FULLSCREEN, 1)
+
+# Function definitions first
+def load_and_play_music():
+    """Load and play background music"""
+    music_file = "music/music.mp3"
+    if os.path.exists(music_file):
+        try:
+            pygame.mixer.music.load(music_file)
+            pygame.mixer.music.play(-1)  # Loop indefinitely
+            print(f"Playing: {music_file}")
+        except Exception as e:
+            print(f"Error loading music: {e}")
+    else:
+        print(f"Music file not found: {music_file}")
+        print("Please place your background music at: music/music.mp3")
+
+def update_music_volume(human_detected):
+    """Update music volume based on human detection"""
+    global current_volume, target_volume
+    
+    # Set target volume based on detection
+    if human_detected:
+        target_volume = 0.7  # Higher volume when human present
+    else:
+        target_volume = 0.1  # Lower volume when no human
+    
+    # Smooth volume transition
+    if abs(current_volume - target_volume) > 0.01:
+        current_volume += (target_volume - current_volume) * volume_smoothing
+        pygame.mixer.music.set_volume(max(0.0, min(1.0, current_volume)))
+
+# Audio system initialization
+pygame.mixer.init(frequency=22050, size=-16, channels=2, buffer=512)
+pygame.mixer.music.set_volume(0.1)  # Start with low volume
+
+# Audio variables
+current_volume = 0.1
+target_volume = 0.1
+volume_smoothing = 0.05
+
+# Initialize background music
+load_and_play_music()
+
+# Mode timing variables
+mode_start_time = time.time()
+mode_duration = 5  # 5 seconds per mode
 
 while cap.isOpened():
     ret, frame = cap.read()
@@ -174,30 +225,33 @@ while cap.isOpened():
 
 
     # ---- UI OVERLAY ----
-    # Style name at top-left corner
-    cv2.putText(canvas, f"* {styles[current_style]} *", (15, 30),
-                cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
-
+    # No mode name displayed
+    
+    # Update music volume based on human detection
+    human_detected = mask_bin.sum() >= 1000
+    update_music_volume(human_detected)
     
     # No human warning with cute styling
-    if mask_bin.sum() < 1000:
+    if not human_detected:
         cv2.putText(canvas, ":( No human detected", (w//2 - 130, h//2),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.9, (255, 182, 193), 3)
         cv2.putText(canvas, ":( No human detected", (w//2 - 130, h//2),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.9, (255, 105, 180), 2)
 
     
-    cv2.imshow("Human Visualizer", canvas)
+    cv2.imshow("Wizviz", canvas)
 
     key = cv2.waitKey(1) & 0xFF
+    
+    # Check if it's time to switch modes
+    current_time = time.time()
+    if current_time - mode_start_time >= mode_duration:
+        current_style = (current_style + 1) % len(styles)
+        mode_start_time = current_time
+    
     if key == ord('q'):
         break
-    elif key == ord(' '):
-        current_style = (current_style + 1) % len(styles)
-    elif key >= ord('1') and key <= ord('3'):
-        style_index = key - ord('1')
-        if style_index < len(styles):
-            current_style = style_index
 
 cap.release()
 cv2.destroyAllWindows()
+pygame.mixer.quit()  # Clean up audio system
