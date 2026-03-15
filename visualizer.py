@@ -12,7 +12,7 @@ seg = mp_seg.SelfieSegmentation(model_selection=1)
 
 cap = cv2.VideoCapture(0)
 current_style = 0
-styles = ["HEATMAP", "DOTS"]
+styles = ["HEATMAP", "DOTS", "CONSTELLATION"]
 
 cv2.namedWindow("Human Visualizer", cv2.WINDOW_NORMAL)
 
@@ -74,6 +74,44 @@ while cap.isOpened():
             color_idx = i % len(colors)
             cv2.circle(canvas, (x, y), 2, colors[color_idx], -1)
 
+    elif styles[current_style] == "CONSTELLATION":
+        # Create constellation effect with connected dots
+        # Add small background stars first
+        for _ in range(100):  # Add 100 random small stars in background
+            star_x = np.random.randint(0, w)
+            star_y = np.random.randint(0, h)
+            # Only place stars outside the human silhouette
+            if mask_bin[star_y, star_x] == 0:
+                cv2.circle(canvas, (star_x, star_y), 1, (100, 100, 150), -1)  # Small dim stars
+        
+        # Sample points from the mask for constellation
+        ys, xs = np.where(mask_bin > 0)
+        if len(ys) > 0:
+            # Select fewer points for constellation effect
+            num_points = min(40, len(ys))  # Reduced from 60
+            indices = np.random.choice(len(ys), num_points, replace=False)
+            points = list(zip(xs[indices], ys[indices]))
+            
+            # Draw fewer connections between nearby points
+            for i, (x1, y1) in enumerate(points):
+                # Only connect to nearest 2-3 neighbors instead of all nearby points
+                distances = []
+                for j, (x2, y2) in enumerate(points[i+1:], i+1):
+                    distance = np.sqrt((x2-x1)**2 + (y2-y1)**2)
+                    if distance < 60:  # Reduced connection distance from 80 to 60
+                        distances.append((distance, j, (x2, y2)))
+                
+                # Sort by distance and connect to closest 2 neighbors
+                distances.sort()
+                for dist, j, (x2, y2) in distances[:2]:  # Max 2 connections per point
+                    cv2.line(canvas, (x1, y1), (x2, y2), (50, 50, 100), 1)
+            
+            # Draw bright dots at constellation points
+            for i, (x, y) in enumerate(points):
+                # Bright star-like dots
+                cv2.circle(canvas, (x, y), 3, (255, 255, 200), -1)  # Bright yellow-white
+                cv2.circle(canvas, (x, y), 1, (255, 255, 255), -1)   # White center
+
 
     # ---- UI OVERLAY ----
     # Cute style name with rounded rectangle background
@@ -84,7 +122,7 @@ while cap.isOpened():
 
     # Cute controls with pastel background
     cv2.rectangle(canvas, (0, h-45), (w, h), (176, 224, 230), -1)  # Powder blue background
-    cv2.putText(canvas, "(^.^) 1-2 = select style   >_> SPACE = next style   :) Q = quit", (15, h-15),
+    cv2.putText(canvas, "(^.^) 1-3 = select style   >_> SPACE = next style   :) Q = quit", (15, h-15),
                 cv2.FONT_HERSHEY_SIMPLEX, 0.5, (75, 0, 130), 1)  # Indigo text
 
     # No human warning with cute styling
@@ -102,7 +140,7 @@ while cap.isOpened():
         break
     elif key == ord(' '):
         current_style = (current_style + 1) % len(styles)
-    elif key >= ord('1') and key <= ord('2'):
+    elif key >= ord('1') and key <= ord('3'):
         style_index = key - ord('1')
         if style_index < len(styles):
             current_style = style_index
