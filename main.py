@@ -12,7 +12,28 @@ seg = mp_seg.SelfieSegmentation(model_selection=1)
 
 cap = cv2.VideoCapture(0)
 current_style = 0
-styles = ["HEATMAP", "DOTS", "CONSTELLATION"]
+styles = ["HEATMAP", "CONSTELLATION", "CLOUDS"]
+
+# Initialize star positions for smooth movement
+star_positions = []
+num_stars = 100
+for _ in range(num_stars):
+    star_positions.append({
+        'x': np.random.randint(0, 640),  # Will be updated to actual width
+        'y': np.random.randint(0, 480),  # Will be updated to actual height
+        'speed': np.random.uniform(0.1, 0.3)  # Slow horizontal speed
+    })
+
+# Initialize cloud positions for smooth movement
+cloud_positions = []
+for _ in range(5):
+    cloud_positions.append({
+        'x': np.random.randint(0, 640),  # Will be updated to actual width
+        'y': np.random.randint(50, 160),  # Upper third of screen
+        'size': np.random.randint(40, 80),
+        'speed': np.random.uniform(0.2, 0.5),
+        'puffs': np.random.randint(3, 6)
+    })
 
 cv2.namedWindow("Human Visualizer", cv2.WINDOW_NORMAL)
 
@@ -41,48 +62,39 @@ while cap.isOpened():
         heat = cv2.applyColorMap((blurred * 255).astype(np.uint8), cv2.COLORMAP_INFERNO)
         canvas = cv2.bitwise_and(heat, heat, mask=mask_bin)
 
-    elif styles[current_style] == "DOTS":
-        # Find edges for better outline
-        edges = cv2.Canny(mask_bin * 255, 50, 150)
-        edge_ys, edge_xs = np.where(edges > 0)
+    elif styles[current_style] == "CLOUDS":
+        # Create single orange background
+        canvas[:] = (255, 165, 0)  # Orange sky
         
-        # Also add some interior points for density
-        interior_ys, interior_xs = np.where(mask_bin > 0)
-        
-        all_points = []
-        
-        # Add edge points (higher priority for outline)
-        if len(edge_ys) > 0:
-            edge_indices = np.random.choice(len(edge_ys), min(400, len(edge_ys)), replace=False)
-            all_points.extend(zip(edge_xs[edge_indices], edge_ys[edge_indices]))
-        
-        # Add some interior points for fill
-        if len(interior_ys) > 0:
-            interior_indices = np.random.choice(len(interior_ys), min(400, len(interior_ys)), replace=False)
-            all_points.extend(zip(interior_xs[interior_indices], interior_ys[interior_indices]))
-        
-        # Draw all points
-        colors = [
-            (0, 150, 255),    # Blue
-            (255, 100, 200),  # Pink  
-            (100, 255, 200),  # Cyan
-            (255, 200, 100),  # Orange
-            (200, 100, 255)   # Purple
-        ]
-        
-        for i, (x, y) in enumerate(all_points):
-            color_idx = i % len(colors)
-            cv2.circle(canvas, (x, y), 2, colors[color_idx], -1)
+        # Add blue sun in left corner
+        sun_x, sun_y = 100, 80
+        cv2.circle(canvas, (sun_x, sun_y), 40, (0, 100, 255), -1)  # Blue sun body
 
     elif styles[current_style] == "CONSTELLATION":
         # Create constellation effect with connected dots
-        # Add small background stars first
-        for _ in range(100):  # Add 100 random small stars in background
-            star_x = np.random.randint(0, w)
-            star_y = np.random.randint(0, h)
-            # Only place stars outside the human silhouette
-            if mask_bin[star_y, star_x] == 0:
-                cv2.circle(canvas, (star_x, star_y), 1, (100, 100, 150), -1)  # Small dim stars
+        # Update and draw moving stars
+        for star in star_positions:
+            # Update star position (move left)
+            star['x'] -= star['speed']
+            
+            # Wrap around when star goes off screen
+            if star['x'] < 0:
+                star['x'] = w
+                star['y'] = np.random.randint(0, h)
+            
+            # Only draw stars outside the human silhouette
+            star_y_int = int(star['y'])
+            star_x_int = int(star['x'])
+            if 0 <= star_y_int < h and 0 <= star_x_int < w:
+                if mask_bin[star_y_int, star_x_int] == 0:
+                    cv2.circle(canvas, (star_x_int, star_y_int), 1, (100, 100, 150), -1)
+        
+        # Add a small crescent moon in top-right corner
+        moon_x, moon_y = w - 80, 60
+        # Main moon circle
+        cv2.circle(canvas, (moon_x, moon_y), 15, (200, 200, 220), -1)
+        # Crescent shadow (creates crescent shape)
+        cv2.circle(canvas, (moon_x + 5, moon_y - 2), 14, (0, 0, 0), -1)
         
         # Sample points from the mask for constellation
         ys, xs = np.where(mask_bin > 0)
@@ -114,17 +126,11 @@ while cap.isOpened():
 
 
     # ---- UI OVERLAY ----
-    # Cute style name with rounded rectangle background
-    cv2.rectangle(canvas, (5, 5), (280, 45), (255, 182, 193), -1)  # Light pink background
-    cv2.rectangle(canvas, (5, 5), (280, 45), (255, 105, 180), 2)     # Pink border
-    cv2.putText(canvas, f"* {styles[current_style]} *", (15, 33),
-                cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
+    # Style name at top-left corner
+    cv2.putText(canvas, f"* {styles[current_style]} *", (15, 30),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
 
-    # Cute controls with pastel background
-    cv2.rectangle(canvas, (0, h-45), (w, h), (176, 224, 230), -1)  # Powder blue background
-    cv2.putText(canvas, "(^.^) 1-3 = select style   >_> SPACE = next style   :) Q = quit", (15, h-15),
-                cv2.FONT_HERSHEY_SIMPLEX, 0.5, (75, 0, 130), 1)  # Indigo text
-
+    
     # No human warning with cute styling
     if mask_bin.sum() < 1000:
         cv2.putText(canvas, ":( No human detected", (w//2 - 130, h//2),
