@@ -12,7 +12,7 @@ seg = mp_seg.SelfieSegmentation(model_selection=1)
 
 cap = cv2.VideoCapture(0)
 current_style = 0
-styles = ["HEATMAP", "CONSTELLATION", "CLOUDS"]
+styles = ["HEATMAP", "CONSTELLATION"]
 
 # Initialize star positions for smooth movement
 star_positions = []
@@ -58,17 +58,65 @@ while cap.isOpened():
     canvas = np.zeros_like(frame)
 
     if styles[current_style] == "HEATMAP":
+        # Create green grid background like thermal cameras
+        canvas[:] = (0, 50, 0)  # Dark green background
+        
+        # Draw grid lines
+        grid_spacing = 20
+        grid_color = (0, 80, 0)  # Slightly lighter green for grid
+        for x in range(0, w, grid_spacing):
+            cv2.line(canvas, (x, 0), (x, h), grid_color, 1)
+        for y in range(0, h, grid_spacing):
+            cv2.line(canvas, (0, y), (w, y), grid_color, 1)
+        
+        # Create heat effect
         blurred = cv2.GaussianBlur(mask, (51, 51), 0)
         heat = cv2.applyColorMap((blurred * 255).astype(np.uint8), cv2.COLORMAP_INFERNO)
-        canvas = cv2.bitwise_and(heat, heat, mask=mask_bin)
-
-    elif styles[current_style] == "CLOUDS":
-        # Create single orange background
-        canvas[:] = (255, 165, 0)  # Orange sky
         
-        # Add blue sun in left corner
-        sun_x, sun_y = 100, 80
-        cv2.circle(canvas, (sun_x, sun_y), 40, (0, 100, 255), -1)  # Blue sun body
+        # Apply heat only to human silhouette
+        heat_masked = cv2.bitwise_and(heat, heat, mask=mask_bin)
+        
+        # Add heat ripple effect - create wavy distortion
+        ripple_amplitude = 2
+        ripple_frequency = 0.1
+        time_factor = 0  # Can be animated if needed
+        
+        for y in range(0, h, 3):  # Sample every 3 pixels for performance
+            for x in range(0, w, 3):
+                if mask_bin[y, x] > 0:
+                    # Calculate ripple offset
+                    offset_x = int(ripple_amplitude * np.sin(ripple_frequency * x + time_factor))
+                    offset_y = int(ripple_amplitude * np.cos(ripple_frequency * y + time_factor))
+                    
+                    # Apply offset within bounds
+                    src_x = max(0, min(w-1, x + offset_x))
+                    src_y = max(0, min(h-1, y + offset_y))
+                    
+                    # Copy heat pixel with ripple
+                    if heat_masked[src_y, src_x].any() > 0:
+                        cv2.circle(canvas, (x, y), 2, heat_masked[src_y, src_x].tolist(), -1)
+        
+        # Blend the heat effect with the background
+        canvas = cv2.addWeighted(canvas, 0.3, heat_masked, 0.7, 0)
+        
+        # Add heat noise - small dots here and there in small density
+        num_noise_dots = 50  # Small density of noise dots
+        for _ in range(num_noise_dots):
+            noise_x = np.random.randint(0, w)
+            noise_y = np.random.randint(0, h)
+            
+            # Random heat colors for noise (shades of blue)
+            noise_colors = [
+                (0, 0, 50),      # Dark blue
+                (0, 50, 100),    # Medium blue
+                (0, 100, 150),   # Light blue
+                (0, 150, 200),   # Bright blue
+                (100, 150, 255)  # Very bright blue
+            ]
+            noise_color = noise_colors[np.random.randint(0, len(noise_colors))]
+            noise_size = np.random.randint(1, 3)  # Small dots
+            
+            cv2.circle(canvas, (noise_x, noise_y), noise_size, noise_color, -1)
 
     elif styles[current_style] == "CONSTELLATION":
         # Create constellation effect with connected dots
