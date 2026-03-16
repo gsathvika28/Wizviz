@@ -2,7 +2,6 @@ import cv2
 import mediapipe as mp
 import numpy as np
 import pygame
-import threading
 import os
 import time
 
@@ -26,17 +25,6 @@ for _ in range(num_stars):
         'x': np.random.randint(0, 640),  # Will be updated to actual width
         'y': np.random.randint(0, 480),  # Will be updated to actual height
         'speed': np.random.uniform(0.1, 0.3)  # Slow horizontal speed
-    })
-
-# Initialize cloud positions for smooth movement
-cloud_positions = []
-for _ in range(5):
-    cloud_positions.append({
-        'x': np.random.randint(0, 640),  # Will be updated to actual width
-        'y': np.random.randint(50, 160),  # Upper third of screen
-        'size': np.random.randint(40, 80),
-        'speed': np.random.uniform(0.2, 0.5),
-        'puffs': np.random.randint(3, 6)
     })
 
 cv2.namedWindow("Wizviz", cv2.WINDOW_FREERATIO)
@@ -90,7 +78,7 @@ mode_duration = 7  # 7 seconds per mode
 
 # Gesture cooldown variables
 last_gesture_time = 0
-gesture_cooldown = 1.0  # 1 second cooldown between gesture detections
+gesture_cooldown = 2.0  # 2 seconds cooldown between gesture detections
 
 while cap.isOpened():
     ret, frame = cap.read()
@@ -116,7 +104,7 @@ while cap.isOpened():
     # Check if enough time has passed since last gesture
     current_time = time.time()
     if current_time - last_gesture_time < gesture_cooldown:
-        gesture_detected = False  # Skip gesture detection during cooldown
+        pass  # Skip gesture detection during cooldown
     else:
         # Store previous hand positions for velocity calculation
         if 'prev_thumb_tip' not in globals():
